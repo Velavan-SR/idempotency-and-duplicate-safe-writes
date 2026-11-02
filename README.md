@@ -94,6 +94,23 @@ Explain:
 4. why paging job is stored in same transaction;
 5. privacy and size risks of stored responses.
 
+The implementation uses a unique database constraint on `(tenant_id, operation, key)`
+because application-level existence checks cannot safely arbitrate concurrent requests.
+The winning transaction claims the key while holding the database lock, creates the
+incident and its pending paging job, then stores the completed response before commit.
+Later requests lock the same record and either replay that stored response or return a
+conflict when the canonical request hash differs. Object keys are sorted recursively
+before hashing with SHA-256; array order and values remain significant.
+
+Keys expire 24 hours after they are claimed. An expired record may be reclaimed for a
+new request, which bounds idempotency storage while preserving duplicate protection
+for the exercise window. The paging job is written in the same transaction as the
+incident, so a commit always leaves both durable records and a rollback leaves neither;
+no external paging provider is called in that transaction. Stored response bodies are
+limited to the endpoint result and should be reviewed for sensitive data and unbounded
+payload size in a production system; this exercise stores the incident JSON needed for
+an exact replay.
+
 ## Test Coverage
 
 Supplied tests check:
